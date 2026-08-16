@@ -1,5 +1,5 @@
 cask "cracker" do
-  version "1.1.0"
+  version "1.1.1"
   sha256 :no_check
 
   url "https://github.com/s3mng/chz-mac/releases/download/v#{version}/cracker-#{version}.dmg"
@@ -12,7 +12,7 @@ cask "cracker" do
     strategy :github_latest
   end
 
-  depends_on macos: ">= :sonoma"
+  depends_on macos: :sonoma
   depends_on arch: :arm64
 
   app "Cracker.app"

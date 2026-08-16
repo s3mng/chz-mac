@@ -12,6 +12,7 @@ macOS 14 이상, Apple Silicon에서 동작합니다.
 
 ```sh
 brew tap s3mng/chz-mac https://github.com/s3mng/chz-mac
+brew trust --cask s3mng/chz-mac/cracker
 brew install --cask cracker
 ```
 
