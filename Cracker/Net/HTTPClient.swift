@@ -4,10 +4,13 @@ final class HTTPClient: @unchecked Sendable {
     static let userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36"
 
     private let cookies: CookieStore
+    private let redirects: RedirectGuard
     private let session: URLSession
 
     init(cookies: CookieStore) {
         self.cookies = cookies
+        let redirects = RedirectGuard(cookies: cookies)
+        self.redirects = redirects
         let config = URLSessionConfiguration.ephemeral
         config.waitsForConnectivity = true
         config.timeoutIntervalForRequest = 30
@@ -20,11 +23,11 @@ final class HTTPClient: @unchecked Sendable {
             "Origin": "https://chzzk.naver.com",
             "Referer": "https://chzzk.naver.com/",
         ]
-        session = URLSession(configuration: config)
+        session = URLSession(configuration: config, delegate: redirects, delegateQueue: nil)
     }
 
-    func getText(_ url: URL) async throws -> String {
-        let (data, response) = try await data(from: url)
+    func getText(_ url: URL, headers: [String: String] = [:]) async throws -> String {
+        let (data, response) = try await data(from: url, headers: headers)
         guard let http = response as? HTTPURLResponse else {
             throw TransferError.message("응답이 없어요")
         }
@@ -56,14 +59,45 @@ final class HTTPClient: @unchecked Sendable {
         try handle.write(contentsOf: data)
     }
 
-    func data(from url: URL) async throws -> (Data, URLResponse) {
+    func data(from url: URL, headers: [String: String] = [:]) async throws -> (Data, URLResponse) {
         var request = URLRequest(url: url)
+        for (key, value) in headers {
+            request.setValue(value, forHTTPHeaderField: key)
+        }
         applyCookie(&request)
         return try await session.data(for: request)
     }
 
     private func applyCookie(_ request: inout URLRequest) {
-        guard let host = request.url?.host, HostKind.isNaver(host), let header = cookies.cookieHeader() else { return }
+        guard let host = request.url?.host, HostKind.needsSessionCookie(host), let header = cookies.cookieHeader() else { return }
         request.setValue(header, forHTTPHeaderField: "Cookie")
+    }
+}
+
+private final class RedirectGuard: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    private let cookies: CookieStore
+
+    init(cookies: CookieStore) {
+        self.cookies = cookies
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        guard let url = request.url, url.scheme?.lowercased() == "https" else {
+            completionHandler(nil)
+            return
+        }
+        var next = request
+        if let host = url.host, HostKind.needsSessionCookie(host) {
+            next.setValue(cookies.cookieHeader(), forHTTPHeaderField: "Cookie")
+        } else {
+            next.setValue(nil, forHTTPHeaderField: "Cookie")
+        }
+        completionHandler(next)
     }
 }

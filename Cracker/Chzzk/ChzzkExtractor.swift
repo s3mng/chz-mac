@@ -5,7 +5,7 @@ struct ChzzkExtractor: Sendable {
 
     func resolve(_ rawURL: String) async -> ExtractResult {
         guard let target = ChzzkURL.parse(rawURL) else {
-            return .failed("치지직 라이브나 다시보기 링크를 붙여 주세요")
+            return .failed("치지직 라이브, 다시보기, 클립 링크를 붙여 주세요")
         }
         do {
             switch target.kind {
@@ -13,6 +13,8 @@ struct ChzzkExtractor: Sendable {
                 return try await resolveLive(rawURL, channelId: target.id)
             case .vod:
                 return try await resolveVideo(rawURL, videoId: target.id)
+            case .clip:
+                return try await resolveClip(rawURL, clipId: target.id)
             }
         } catch {
             return .failed(error.localizedDescription)
@@ -84,15 +86,7 @@ struct ChzzkExtractor: Sendable {
                   let key = (content["inKey"] as? String)?.nilIfBlank, key != "null" else {
                 return .failed("재생 키가 없어요. 로그인 상태를 확인해 주세요")
             }
-            var components = URLComponents(string: "https://apis.naver.com/neonplayer/vodplay/v1/playback/\(nid)")
-            components?.queryItems = [
-                URLQueryItem(name: "key", value: key),
-                URLQueryItem(name: "env", value: "real"),
-                URLQueryItem(name: "lc", value: "en_US"),
-                URLQueryItem(name: "cpl", value: "en_US"),
-            ]
-            guard let mpdURL = components?.url else { return .failed("재생 주소를 만들지 못했어요") }
-            qualities = try await dashQualities(mpdURL)
+            qualities = try await neonplayerQualities(videoId: nid, inKey: key, preferVersion: "v1")
         } else {
             guard let rewind = (content["liveRewindPlaybackJson"] as? String)?.nilIfBlank, rewind != "null",
                   let rewindData = rewind.data(using: .utf8),
@@ -117,6 +111,62 @@ struct ChzzkExtractor: Sendable {
         )
     }
 
+    private func resolveClip(_ sourceURL: String, clipId: String) async throws -> ExtractResult {
+        guard let encoded = clipId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+              let api = URL(string: "https://api.chzzk.naver.com/service/v1/play-info/clip/\(encoded)") else {
+            return .failed("주소를 읽지 못했어요")
+        }
+        let content = try await http.getJSON(api)
+        let adult = content["adult"] as? Bool ?? false
+        if adult && !isAdultAllowed(content) {
+            return .needsLogin(adultReason(content))
+        }
+        guard let nid = (content["videoId"] as? String)?.nilIfBlank, nid != "null",
+              let key = (content["inKey"] as? String)?.nilIfBlank, key != "null" else {
+            return adult ? .needsLogin(adultReason(content)) : .failed("받을 수 없는 클립이에요")
+        }
+        let qualities = try await neonplayerQualities(videoId: nid, inKey: key, preferVersion: "v2")
+        guard !qualities.isEmpty else { return .failed("화질 목록을 읽지 못했어요") }
+        let channel = ((content["ownerChannel"] as? [String: Any])?["channelName"] as? String)?.nilIfBlank ?? "치지직"
+        return .ready(
+            VideoMeta(
+                sourceURL: sourceURL,
+                kind: .clip,
+                title: (content["contentTitle"] as? String)?.nilIfBlank ?? "치지직 클립",
+                channel: channel,
+                isAdult: adult,
+                durationLabel: nil,
+                qualities: qualities
+            )
+        )
+    }
+
+    private func neonplayerQualities(videoId: String, inKey: String, preferVersion: String) async throws -> [QualityOption] {
+        let versions = preferVersion == "v2" ? ["v2", "v1"] : ["v1", "v2"]
+        var lastError: Error?
+        for version in versions {
+            var components = URLComponents(string: "https://apis.naver.com/neonplayer/vodplay/\(version)/playback/\(videoId)")
+            var query = [URLQueryItem(name: "key", value: inKey)]
+            if version == "v1" {
+                query += [
+                    URLQueryItem(name: "env", value: "real"),
+                    URLQueryItem(name: "lc", value: "en_US"),
+                    URLQueryItem(name: "cpl", value: "en_US"),
+                ]
+            }
+            components?.queryItems = query
+            guard let mpdURL = components?.url else { continue }
+            do {
+                let qualities = try await dashQualities(mpdURL)
+                if !qualities.isEmpty { return qualities }
+            } catch {
+                lastError = error
+            }
+        }
+        if let lastError { throw lastError }
+        return []
+    }
+
     private func hlsQualities(_ url: URL) async throws -> [QualityOption] {
         let body = try await http.getText(url)
         if !HlsParser.isMaster(body) {
@@ -137,7 +187,7 @@ struct ChzzkExtractor: Sendable {
     }
 
     private func dashQualities(_ mpdURL: URL) async throws -> [QualityOption] {
-        let xml = try await http.getText(mpdURL)
+        let xml = try await http.getText(mpdURL, headers: ["Accept": "application/dash+xml"])
         let reps = DashParser.parse(xml, mpdURL: mpdURL)
         let videos = reps.filter { $0.contentType == "video" }.sorted { ($0.height ?? 0) > ($1.height ?? 0) }
         let audioId = reps.filter { $0.contentType == "audio" }.max(by: { $0.bandwidth < $1.bandwidth })?.id

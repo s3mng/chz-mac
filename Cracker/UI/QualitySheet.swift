@@ -10,9 +10,9 @@ struct QualitySheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text(meta.kind == .live ? "라이브 녹화" : "다시보기 저장")
+            Text(kindTitle)
                 .font(.system(size: 12, weight: .bold))
-                .foregroundStyle(meta.kind == .live ? Color.liveCoral : Color.cheddar)
+                .foregroundStyle(meta.kind.isLive ? Color.liveCoral : Color.cheddar)
             Text(meta.title)
                 .font(.system(size: 22, weight: .semibold))
                 .fixedSize(horizontal: false, vertical: true)
@@ -47,7 +47,15 @@ struct QualitySheet: View {
 
     private func buttonTitle(needsLogin: Bool) -> String {
         if needsLogin { return "로그인하고 받기" }
-        return meta.kind == .live ? "녹화 시작" : "다운로드"
+        return meta.kind.isLive ? "녹화 시작" : "다운로드"
+    }
+
+    private var kindTitle: String {
+        switch meta.kind {
+        case .live: "라이브 녹화"
+        case .vod: "다시보기 저장"
+        case .clip: "클립 저장"
+        }
     }
 }
 

@@ -89,7 +89,17 @@ private struct LoginWebView: NSViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-            guard let url = navigationAction.request.url, url.scheme == "https", let host = url.host, HostKind.isNaver(host) else {
+            guard let url = navigationAction.request.url else {
+                decisionHandler(.cancel)
+                return
+            }
+            let isMain = navigationAction.targetFrame?.isMainFrame ?? true
+            if isMain {
+                guard url.scheme == "https", let host = url.host, HostKind.isLoginNavigation(host) else {
+                    decisionHandler(.cancel)
+                    return
+                }
+            } else if url.scheme != "https" && url.scheme != "about" {
                 decisionHandler(.cancel)
                 return
             }
@@ -97,7 +107,7 @@ private struct LoginWebView: NSViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            guard let host = webView.url?.host, HostKind.isNaver(host) else { return }
+            guard let host = webView.url?.host, HostKind.isLoginNavigation(host) else { return }
             webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { [weak self] cookies in
                 guard let self else { return }
                 let captured = self.store.importCookies(cookies)

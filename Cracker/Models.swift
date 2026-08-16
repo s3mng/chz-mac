@@ -3,6 +3,9 @@ import SwiftUI
 enum JobKind: String, Codable, Sendable {
     case live
     case vod
+    case clip
+
+    var isLive: Bool { self == .live }
 }
 
 enum JobStatus: String, Codable, Sendable {
@@ -74,13 +77,42 @@ enum TransferError: LocalizedError {
 
 enum HostKind {
     static func isNaver(_ host: String) -> Bool {
-        let value = host.lowercased()
+        let value = normalized(host)
         return value == "naver.com" || value.hasSuffix(".naver.com")
     }
 
     static func isChzzk(_ host: String) -> Bool {
-        let value = host.lowercased()
+        let value = normalized(host)
         return value == "chzzk.naver.com" || value.hasSuffix(".chzzk.naver.com")
+    }
+
+    static func needsSessionCookie(_ host: String) -> Bool {
+        let value = normalized(host)
+        switch value {
+        case "api.chzzk.naver.com", "apis.naver.com", "chzzk.naver.com":
+            return true
+        default:
+            return value.hasSuffix(".apis.naver.com")
+        }
+    }
+
+    static func isLoginNavigation(_ host: String) -> Bool {
+        let value = normalized(host)
+        switch value {
+        case "naver.com", "www.naver.com",
+             "nid.naver.com", "chzzk.naver.com":
+            return true
+        default:
+            return value.hasSuffix(".nid.naver.com") || value.hasSuffix(".chzzk.naver.com")
+        }
+    }
+
+    private static func normalized(_ host: String) -> String {
+        var value = host.lowercased()
+        if value.hasPrefix(".") {
+            value.removeFirst()
+        }
+        return value
     }
 }
 

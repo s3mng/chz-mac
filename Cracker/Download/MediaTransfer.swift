@@ -135,7 +135,7 @@ struct MediaTransfer {
         isPaused: @escaping () -> Bool,
         isCancelled: @escaping () -> Bool
     ) async throws {
-        let xml = try await http.getText(quality.mediaURL)
+        let xml = try await http.getText(quality.mediaURL, headers: ["Accept": "application/dash+xml"])
         let reps = DashParser.parse(xml, mpdURL: quality.mediaURL)
         guard let video = reps.first(where: { $0.id == quality.dashVideoRepId }) else {
             throw TransferError.message("영상 화질을 찾지 못했어요")

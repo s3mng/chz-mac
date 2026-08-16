@@ -114,7 +114,7 @@ struct HomeView: View {
             CheeseMark(size: 72)
             Text("아직 아무것도 없어요")
                 .font(.system(size: 22, weight: .semibold))
-            Text("라이브는 녹화하고, 다시보기는 파일로 받아요.\n아래 칸에 치지직 링크만 넣으면 됩니다.")
+            Text("라이브는 녹화하고, 다시보기와 클립은 파일로 받아요.\n아래 칸에 치지직 링크만 넣으면 됩니다.")
                 .font(.system(size: 14))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

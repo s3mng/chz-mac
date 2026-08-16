@@ -122,7 +122,7 @@ final class TransferCoordinator: @unchecked Sendable {
 
     func togglePause(id: String) {
         lock.lock()
-        guard var job = jobs.first(where: { $0.id == id }), job.kind == .vod else {
+        guard var job = jobs.first(where: { $0.id == id }), !job.kind.isLive else {
             lock.unlock()
             return
         }

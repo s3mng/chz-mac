@@ -33,11 +33,11 @@ struct JobCard: View {
                 Spacer(minLength: 8)
                 JobActions(job: job, onCancel: onCancel, onTogglePause: onTogglePause)
             }
-            if job.kind == .vod && ![.completed, .failed, .cancelled].contains(job.status) {
+            if !job.kind.isLive && ![.completed, .failed, .cancelled].contains(job.status) {
                 ProgressView(value: min(max(job.progress, 0), 1))
                     .tint(.cheddar)
             }
-            if job.kind == .live && job.status == .running {
+            if job.kind.isLive && job.status == .running {
                 LivePulseBar()
             }
         }
@@ -64,7 +64,7 @@ private struct JobActions: View {
 
     var body: some View {
         HStack(spacing: 2) {
-            if job.kind == .vod && [.running, .paused].contains(job.status) {
+            if !job.kind.isLive && [.running, .paused].contains(job.status) {
                 Button(action: onTogglePause) {
                     Image(systemName: job.status == .paused ? "play.fill" : "pause.fill")
                 }
@@ -73,11 +73,11 @@ private struct JobActions: View {
             }
             if [.running, .paused, .queued].contains(job.status) {
                 Button(action: onCancel) {
-                    Image(systemName: job.kind == .live ? "stop.fill" : "xmark")
+                    Image(systemName: job.kind.isLive ? "stop.fill" : "xmark")
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
-                .help(job.kind == .live ? "녹화 중지" : "취소")
+                .help(job.kind.isLive ? "녹화 중지" : "취소")
             }
         }
         .font(.system(size: 13, weight: .semibold))
@@ -89,7 +89,7 @@ private struct StatusChip: View {
 
     var body: some View {
         let pair: (String, Color) = {
-            if job.kind == .live && job.status == .running { return ("LIVE", .liveCoral) }
+            if job.kind.isLive && job.status == .running { return ("LIVE", .liveCoral) }
             switch job.status {
             case .paused: return ("PAUSED", .cheddar)
             case .completed: return ("DONE", .okSage)
@@ -97,7 +97,7 @@ private struct StatusChip: View {
             case .failed: return ("FAIL", .liveCoral)
             case .stopped: return ("STOP", Color.secondary)
             case .queued: return ("WAIT", Color.secondary)
-            case .running: return ("VOD", .cheddar)
+            case .running: return (job.kind == .clip ? "CLIP" : "VOD", .cheddar)
             }
         }()
         Text(pair.0)
@@ -123,7 +123,7 @@ private struct ChannelMark: View {
                         .font(.system(size: 20, weight: .semibold))
                         .foregroundStyle(color)
                 }
-            if kind == .live && running {
+            if kind.isLive && running {
                 Circle()
                     .fill(Color.liveCoral)
                     .frame(width: 9, height: 9)
@@ -160,7 +160,7 @@ private struct LivePulseBar: View {
 private func statusCaption(_ job: DownloadJob) -> String? {
     switch job.status {
     case .running:
-        if job.kind == .live { return "녹화 중" }
+        if job.kind.isLive { return "녹화 중" }
         let percent = Int(job.progress * 100)
         if job.attempt > 1 { return "\(percent)% · 재시도 \(job.attempt)/\(job.maxAttempts)" }
         return "\(percent)%"

@@ -1,10 +1,10 @@
 cask "cracker" do
-  version "1.0.0"
+  version "1.1.0"
   sha256 :no_check
 
   url "https://github.com/s3mng/chz-mac/releases/download/v#{version}/cracker-#{version}.dmg"
   name "Cracker"
-  desc "Chzzk live recorder and VOD downloader"
+  desc "Chzzk live recorder and VOD/clip downloader"
   homepage "https://github.com/s3mng/chz-mac"
 
   livecheck do

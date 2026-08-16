@@ -43,7 +43,8 @@ final class CookieStore: @unchecked Sendable {
     }
 
     func importCookies(_ cookies: [HTTPCookie]) -> Bool {
-        let header = cookies.map { "\($0.name)=\($0.value)" }.joined(separator: "; ")
+        let naver = cookies.filter { HostKind.isNaver($0.domain) }
+        let header = naver.map { "\($0.name)=\($0.value)" }.joined(separator: "; ")
         return importCookieHeader(header)
     }
 
@@ -71,6 +72,7 @@ final class CookieStore: @unchecked Sendable {
         SecItemDelete(query as CFDictionary)
         var add = query
         add[kSecValueData as String] = payload
+        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         SecItemAdd(add as CFDictionary, nil)
     }
 
