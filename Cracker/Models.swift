@@ -1,0 +1,132 @@
+import SwiftUI
+
+enum JobKind: String, Codable, Sendable {
+    case live
+    case vod
+}
+
+enum JobStatus: String, Codable, Sendable {
+    case queued
+    case running
+    case paused
+    case completed
+    case failed
+    case stopped
+    case cancelled
+}
+
+enum StreamProtocolKind: String, Codable, Sendable {
+    case hls
+    case dash
+}
+
+struct QualityOption: Identifiable, Hashable, Sendable {
+    let id: String
+    let label: String
+    let note: String
+    let protocolKind: StreamProtocolKind
+    let mediaURL: URL
+    var dashVideoRepId: String?
+    var dashAudioRepId: String?
+}
+
+struct VideoMeta: Sendable {
+    let sourceURL: String
+    let kind: JobKind
+    let title: String
+    let channel: String
+    let isAdult: Bool
+    let durationLabel: String?
+    let qualities: [QualityOption]
+}
+
+struct DownloadJob: Identifiable, Hashable, Codable, Sendable {
+    var id: String
+    var kind: JobKind
+    var title: String
+    var channel: String
+    var quality: String
+    var status: JobStatus
+    var progress: Double = 0
+    var elapsedLabel: String?
+    var isAdult: Bool = false
+    var error: String?
+    var attempt: Int = 1
+    var maxAttempts: Int = 1
+}
+
+enum ExtractResult: Sendable {
+    case ready(VideoMeta)
+    case needsLogin(String)
+    case offline(String?)
+    case failed(String)
+}
+
+enum TransferError: LocalizedError {
+    case message(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .message(let value): value
+        }
+    }
+}
+
+enum HostKind {
+    static func isNaver(_ host: String) -> Bool {
+        let value = host.lowercased()
+        return value == "naver.com" || value.hasSuffix(".naver.com")
+    }
+
+    static func isChzzk(_ host: String) -> Bool {
+        let value = host.lowercased()
+        return value == "chzzk.naver.com" || value.hasSuffix(".chzzk.naver.com")
+    }
+}
+
+enum Formatters {
+    static func clock(_ milliseconds: Int64) -> String {
+        let total = max(milliseconds / 1000, 0)
+        let h = total / 3600
+        let m = (total % 3600) / 60
+        let s = total % 60
+        return String(format: "%02d:%02d:%02d", h, m, s)
+    }
+
+    static func duration(_ seconds: Int) -> String {
+        guard seconds > 0 else { return "" }
+        let h = seconds / 3600
+        let m = (seconds % 3600) / 60
+        if h > 0 && m > 0 { return "\(h)시간 \(m)분" }
+        if h > 0 { return "\(h)시간" }
+        if m > 0 { return "\(m)분" }
+        return "\(seconds)초"
+    }
+
+    static func isoDurationSeconds(_ value: String) -> Double {
+        let pattern = #"^P(?:(\d+)Y)?(?:(\d+)M)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?)?$"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return 0 }
+        let range = NSRange(value.startIndex..<value.endIndex, in: value)
+        guard let match = regex.firstMatch(in: value, options: [], range: range) else { return 0 }
+        func group(_ index: Int) -> Double {
+            let nsRange = match.range(at: index)
+            guard nsRange.location != NSNotFound, let swiftRange = Range(nsRange, in: value) else { return 0 }
+            return Double(value[swiftRange]) ?? 0
+        }
+        return group(3) * 86_400 + group(4) * 3_600 + group(5) * 60 + group(6)
+    }
+
+    static func sanitizeFileName(_ name: String) -> String {
+        let cleaned = name.replacingOccurrences(of: #"[\\/:*?"<>|]"#, with: "_", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let base = cleaned.isEmpty ? "chzzk" : cleaned
+        return String(base.prefix(80))
+    }
+
+    static func bytes(_ value: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useKB, .useMB, .useGB]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: value)
+    }
+}
