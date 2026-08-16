@@ -1,0 +1,14 @@
+---
+description: Keep Homebrew cask version in sync with git tags on every release
+alwaysApply: true
+---
+
+# Releases
+
+When shipping Cracker, the git tag, DMG name, and Homebrew cask must be the same version.
+
+- Tag is `vX.Y.Z`. Cask `version` and DMG are `X.Y.Z` (no `v`).
+- Update `Casks/cracker.rb` `version` in the same change as the release.
+- Update `MARKETING_VERSION` in `Cracker.xcodeproj/project.pbxproj` to match.
+- Commit, push `main`, then push the tag so Actions can attach `cracker-X.Y.Z.dmg`.
+- Do not tag a release while the cask still points at an older version.

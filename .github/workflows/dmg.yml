@@ -14,6 +14,8 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Build Release
         run: |
@@ -40,10 +42,11 @@ jobs:
       - name: Make DMG
         run: |
           mkdir -p dist
-          VERSION="${GITHUB_REF_NAME//\//-}"
+          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${VERSION//\//-}"
           APP="build/Build/Products/Release/Cracker.app"
           test -d "$APP"
-          bash scripts/make-dmg.sh "$APP" "dist/cracker-${VERSION}-${GITHUB_RUN_NUMBER}.dmg"
+          bash scripts/make-dmg.sh "$APP" "dist/cracker-${VERSION}.dmg"
 
       - uses: actions/upload-artifact@v6
         with:
@@ -57,3 +60,33 @@ jobs:
         with:
           files: dist/*.dmg
           generate_release_notes: true
+
+      - name: Sync Homebrew cask
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          export VERSION
+          git fetch origin main
+          git checkout main
+          git pull origin main
+          python3 - <<'PY'
+          from pathlib import Path
+          import os, re
+          version = os.environ["VERSION"]
+          path = Path("Casks/cracker.rb")
+          path.write_text(re.sub(r'version "[^"]+"', f'version "{version}"', path.read_text(), count=1), encoding="utf-8")
+          PY
+          git add Casks/cracker.rb
+          if git diff --staged --quiet; then
+            echo "cask already at ${VERSION}"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "$(cat <<EOF
+          Bump cask to ${VERSION}
+
+          [skip ci]
+          EOF
+          )"
+          git push origin main
