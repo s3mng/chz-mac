@@ -1,0 +1,16 @@
+---
+description: Run a Debug xcodebuild after finishing app changes
+alwaysApply: true
+---
+
+# Builds
+
+When a coding task that touches the Mac app is done, run a Debug build before stopping.
+
+```sh
+xcodebuild -scheme Cracker -destination 'platform=macOS,arch=arm64' -quiet build
+```
+
+- Use this to catch compile errors; it is not a release.
+- Do not tag or ship just because the Debug build succeeded.
+- If the build fails, fix it before considering the task done.

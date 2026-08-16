@@ -12,7 +12,7 @@ struct QualitySheet: View {
         VStack(alignment: .leading, spacing: 16) {
             Text(kindTitle)
                 .font(.system(size: 12, weight: .bold))
-                .foregroundStyle(meta.kind.isLive ? Color.liveCoral : Color.cheddar)
+                .foregroundStyle(meta.kind.isLive ? Color.liveCoral : Color.secondary)
             Text(meta.title)
                 .font(.system(size: 22, weight: .semibold))
                 .fixedSize(horizontal: false, vertical: true)
@@ -22,10 +22,16 @@ struct QualitySheet: View {
             if meta.isAdult {
                 AdultBanner(isLoggedIn: isLoggedIn)
             }
-            Text("화질")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.secondary)
-            FlowQualities(qualities: meta.qualities, selectedId: $selectedQualityId)
+            if meta.kind == .watch {
+                Text("방송이 끝나면 다시보기를 최대 15분 기다립니다.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("화질")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                FlowQualities(qualities: meta.qualities, selectedId: $selectedQualityId)
+            }
             let needsLogin = meta.isAdult && !isLoggedIn
             Button(action: needsLogin ? onLogin : onConfirm) {
                 Text(buttonTitle(needsLogin: needsLogin))
@@ -34,8 +40,8 @@ struct QualitySheet: View {
                     .padding(.vertical, 12)
             }
             .buttonStyle(.plain)
-            .background(Color.cheddar, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .foregroundStyle(Color.ink)
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .foregroundStyle(Color.black)
             Button("취소", action: onDismiss)
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
@@ -47,7 +53,11 @@ struct QualitySheet: View {
 
     private func buttonTitle(needsLogin: Bool) -> String {
         if needsLogin { return "로그인하고 받기" }
-        return meta.kind.isLive ? "녹화 시작" : "다운로드"
+        switch meta.kind {
+        case .live: return "녹화 시작"
+        case .watch: return "대기 시작"
+        case .vod, .clip: return "다운로드"
+        }
     }
 
     private var kindTitle: String {
@@ -55,6 +65,7 @@ struct QualitySheet: View {
         case .live: "라이브 녹화"
         case .vod: "다시보기 저장"
         case .clip: "클립 저장"
+        case .watch: "다시보기 대기"
         }
     }
 }
@@ -101,8 +112,8 @@ private struct FlowQualities: View {
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
-                    .background(selected ? Color.cheddar : Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .foregroundStyle(selected ? Color.ink : Color.primary)
+                    .background(selected ? Color.white : Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .foregroundStyle(selected ? Color.black : Color.primary)
                 }
                 .buttonStyle(.plain)
             }

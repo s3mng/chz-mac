@@ -30,7 +30,7 @@ struct Wordmark: View {
                 Text("crack")
                     .foregroundStyle(Color.primary)
                 Text("er")
-                    .foregroundStyle(Color.cheddar)
+                    .foregroundStyle(Color.primary)
             }
             .font(.system(size: 22, weight: .black))
             .tracking(-0.8)

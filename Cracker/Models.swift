@@ -4,8 +4,10 @@ enum JobKind: String, Codable, Sendable {
     case live
     case vod
     case clip
+    case watch
 
     var isLive: Bool { self == .live }
+    var canPause: Bool { self == .vod || self == .clip }
 }
 
 enum JobStatus: String, Codable, Sendable {
@@ -41,6 +43,8 @@ struct VideoMeta: Sendable {
     let isAdult: Bool
     let durationLabel: String?
     let qualities: [QualityOption]
+    var channelId: String? = nil
+    var openDate: String? = nil
 }
 
 struct DownloadJob: Identifiable, Hashable, Codable, Sendable {

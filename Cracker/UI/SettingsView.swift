@@ -29,7 +29,7 @@ struct SettingsView: View {
         SettingsCard {
             HStack(alignment: .center, spacing: 10) {
                 Image(systemName: "person")
-                    .foregroundStyle(Color.cheddar)
+                    .foregroundStyle(Color.secondary)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(model.isLoggedIn ? "네이버 연결됨" : "네이버 로그인")
                         .font(.system(size: 16, weight: .semibold))
@@ -57,7 +57,7 @@ struct SettingsView: View {
             SettingsCard {
                 HStack(alignment: .center, spacing: 10) {
                     Image(systemName: "folder")
-                        .foregroundStyle(Color.cheddar)
+                        .foregroundStyle(Color.secondary)
                     Text("저장 위치")
                         .font(.system(size: 16, weight: .semibold))
                     Spacer()
@@ -81,7 +81,7 @@ struct SettingsView: View {
         SettingsCard {
             HStack(spacing: 10) {
                 Image(systemName: "arrow.counterclockwise")
-                    .foregroundStyle(Color.cheddar)
+                    .foregroundStyle(Color.secondary)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("다시보기 재시도")
                         .font(.system(size: 16, weight: .semibold))
@@ -117,7 +117,7 @@ struct SettingsView: View {
             SettingsCard {
                 HStack(alignment: .center, spacing: 10) {
                     Image(systemName: "internaldrive")
-                        .foregroundStyle(Color.cheddar)
+                        .foregroundStyle(Color.secondary)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("다운로드 캐시")
                             .font(.system(size: 16, weight: .semibold))
@@ -169,7 +169,7 @@ struct CheddarButtonStyle: ButtonStyle {
             .font(.system(size: 14, weight: .bold))
             .frame(maxWidth: .infinity)
             .padding(.vertical, 10)
-            .background(Color.cheddar.opacity(configuration.isPressed ? 0.8 : 1), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .foregroundStyle(Color.ink)
+            .background(Color.white.opacity(configuration.isPressed ? 0.8 : 1), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .foregroundStyle(Color.black)
     }
 }

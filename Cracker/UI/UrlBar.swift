@@ -25,8 +25,8 @@ struct UrlBar: View {
             }
             .buttonStyle(.plain)
             .frame(width: 36, height: 36)
-            .background(value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || resolving ? Color.primary.opacity(0.08) : Color.cheddar)
-            .foregroundStyle(value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || resolving ? Color.secondary : Color.ink)
+            .background(value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || resolving ? Color.primary.opacity(0.08) : Color.white)
+            .foregroundStyle(value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || resolving ? Color.secondary : Color.black)
             .clipShape(Circle())
             .disabled(value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || resolving)
         }

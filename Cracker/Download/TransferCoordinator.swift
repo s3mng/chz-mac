@@ -2,8 +2,10 @@ import Foundation
 
 struct TransferRequest: Sendable {
     let job: DownloadJob
-    let quality: QualityOption
-    let title: String
+    var quality: QualityOption
+    var title: String
+    let channelId: String?
+    let openDate: String?
 }
 
 final class TransferCoordinator: @unchecked Sendable {
@@ -76,10 +78,26 @@ final class TransferCoordinator: @unchecked Sendable {
             isAdult: meta.isAdult
         )
         lock.lock()
-        queue[id] = TransferRequest(job: job, quality: quality, title: meta.title)
+        queue[id] = TransferRequest(
+            job: job,
+            quality: quality,
+            title: meta.title,
+            channelId: meta.channelId,
+            openDate: meta.openDate
+        )
         pauseFlags[id] = false
         cancelFlags[id] = false
         lock.unlock()
+        if meta.kind == .watch {
+            var running = job
+            running.status = .running
+            upsert(running)
+            Task.detached { [weak self] in
+                await self?.runWatch(id)
+            }
+            startLoop()
+            return
+        }
         upsert(job)
         startLoop()
     }
@@ -122,7 +140,7 @@ final class TransferCoordinator: @unchecked Sendable {
 
     func togglePause(id: String) {
         lock.lock()
-        guard var job = jobs.first(where: { $0.id == id }), !job.kind.isLive else {
+        guard var job = jobs.first(where: { $0.id == id }), job.kind.canPause else {
             lock.unlock()
             return
         }
@@ -169,7 +187,10 @@ final class TransferCoordinator: @unchecked Sendable {
             lock.unlock()
         }
         while true {
-            let next = snapshot.first { [.queued, .running, .paused].contains($0.status) }
+            let next = snapshot.first { job in
+                if isWaitingForReplay(job.id) { return false }
+                return [.queued, .running, .paused].contains(job.status)
+            }
             guard let next else { break }
             if cancelled(next.id) {
                 deleteStaging(next.id)
@@ -196,6 +217,118 @@ final class TransferCoordinator: @unchecked Sendable {
                 }
             }
         }
+    }
+
+    private func isWaitingForReplay(_ id: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return queue[id]?.quality.id == QualityOption.watchPlaceholderId
+    }
+
+    private func runWatch(_ id: String) async {
+        sleep.start()
+        defer { sleep.stop() }
+        do {
+            try await waitForReplay(id)
+        } catch is CancellationError {
+            return
+        } catch {
+            if cancelled(id) { return }
+            var copy = job(id, fallback: DownloadJob(
+                id: id,
+                kind: .watch,
+                title: "",
+                channel: "",
+                quality: "",
+                status: .failed
+            ))
+            copy.status = .failed
+            copy.error = error.localizedDescription
+            upsert(copy)
+            lock.lock()
+            queue.removeValue(forKey: id)
+            lock.unlock()
+        }
+    }
+
+    private func waitForReplay(_ id: String) async throws {
+        lock.lock()
+        let request = queue[id]
+        lock.unlock()
+        guard let request, let channelId = request.channelId else {
+            throw TransferError.message("채널을 찾지 못했어요")
+        }
+        let extractor = ChzzkExtractor(http: http)
+        let startedAt = Date()
+        var liveTitle = request.title
+        var openDate = request.openDate
+        var closedAt: Date?
+        let ticker = Task { [weak self] in
+            while !(self?.cancelled(id) ?? true) {
+                guard let self, let current = self.snapshot.first(where: { $0.id == id }), current.status == .running else { break }
+                var copy = current
+                copy.elapsedLabel = Formatters.clock(Int64(Date().timeIntervalSince(startedAt) * 1000))
+                self.upsert(copy)
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
+        defer { ticker.cancel() }
+
+        while !cancelled(id) {
+            try Task.checkCancellation()
+            let snapshot = try await extractor.liveSnapshot(channelId)
+            if snapshot.isOpen {
+                closedAt = nil
+                liveTitle = snapshot.title
+                openDate = snapshot.openDate ?? openDate
+                var current = job(id, fallback: request.job)
+                current.status = .running
+                current.title = liveTitle
+                current.progress = 0
+                current.error = nil
+                upsert(current)
+                try await Task.sleep(for: .seconds(20))
+                continue
+            }
+            if closedAt == nil { closedAt = Date() }
+            if let closedAt, Date().timeIntervalSince(closedAt) >= 15 * 60 {
+                throw TransferError.message("15분 안에 다시보기가 안 올라왔어요")
+            }
+            var waiting = job(id, fallback: request.job)
+            waiting.status = .running
+            waiting.title = liveTitle
+            waiting.progress = 0.05
+            waiting.error = nil
+            upsert(waiting)
+            if let videoNo = try await extractor.findReplayVideoNo(
+                channelId: channelId,
+                liveTitle: liveTitle,
+                openDate: openDate
+            ), let meta = try await extractor.videoIfReady(videoId: videoNo),
+               let quality = meta.qualities.first {
+                if cancelled(id) { throw CancellationError() }
+                lock.lock()
+                queue[id] = TransferRequest(
+                    job: request.job,
+                    quality: quality,
+                    title: meta.title,
+                    channelId: channelId,
+                    openDate: openDate
+                )
+                lock.unlock()
+                var ready = job(id, fallback: request.job)
+                ready.title = meta.title
+                ready.quality = quality.label
+                ready.status = .queued
+                ready.progress = 0
+                ready.error = nil
+                upsert(ready)
+                startLoop()
+                return
+            }
+            try await Task.sleep(for: .seconds(15))
+        }
+        throw CancellationError()
     }
 
     private func process(_ id: String) async throws {

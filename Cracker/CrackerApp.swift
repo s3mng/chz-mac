@@ -9,6 +9,7 @@ struct CrackerApp: App {
     var body: some Scene {
         Window("Cracker", id: "main") {
             HomeView(model: model)
+                .preferredColorScheme(.dark)
                 .onAppear { appDelegate.model = model }
                 .onChange(of: model.hasActiveTransfer) { _, _ in
                     appDelegate.model = model
@@ -19,12 +20,17 @@ struct CrackerApp: App {
 
         Settings {
             SettingsView(model: model)
+                .preferredColorScheme(.dark)
         }
     }
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     weak var model: AppModel?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.appearance = NSAppearance(named: .darkAqua)
+    }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true

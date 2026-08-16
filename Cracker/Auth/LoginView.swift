@@ -30,7 +30,7 @@ struct LoginView: View {
             .padding(.vertical, 12)
             if progress > 0 && progress < 1 {
                 ProgressView(value: progress)
-                    .tint(.cheddar)
+                    .tint(.white)
                     .padding(.horizontal, 16)
             }
             LoginWebView(store: store, progress: $progress, onDone: onDone)

@@ -23,30 +23,30 @@ extension Color {
 
 struct CrackerTheme {
     static func background(_ scheme: ColorScheme) -> Color {
-        scheme == .dark ? .ink : .paper
+        .ink
     }
 
     static func onBackground(_ scheme: ColorScheme) -> Color {
-        scheme == .dark ? .cream : .inkOnPaper
+        .cream
     }
 
     static func muted(_ scheme: ColorScheme) -> Color {
-        scheme == .dark ? .creamMuted : .mutedOnPaper
+        .creamMuted
     }
 
     static func card(_ scheme: ColorScheme) -> Color {
-        scheme == .dark ? .inkElevated : .paperElevated
+        .inkElevated
     }
 
     static func cardHigh(_ scheme: ColorScheme) -> Color {
-        scheme == .dark ? .inkHighest : .surfaceHighLight
+        .inkHighest
     }
 
     static func wash(_ scheme: ColorScheme) -> Color {
-        scheme == .dark ? Color.cheddarSoft.opacity(0.55) : Color.cheddarSoftLight.opacity(0.7)
+        .ink
     }
 
     static func line(_ scheme: ColorScheme) -> Color {
-        scheme == .dark ? Color.cream.opacity(0.15) : Color.inkOnPaper.opacity(0.1)
+        Color.white.opacity(0.08)
     }
 }

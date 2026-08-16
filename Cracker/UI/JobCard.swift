@@ -33,9 +33,16 @@ struct JobCard: View {
                 Spacer(minLength: 8)
                 JobActions(job: job, onCancel: onCancel, onTogglePause: onTogglePause)
             }
-            if !job.kind.isLive && ![.completed, .failed, .cancelled].contains(job.status) {
+            if !job.kind.isLive && job.kind != .watch && ![.completed, .failed, .cancelled].contains(job.status) {
                 ProgressView(value: min(max(job.progress, 0), 1))
-                    .tint(.cheddar)
+                    .tint(.white)
+            }
+            if job.kind == .watch && job.status == .running && job.progress < 0.1 {
+                LivePulseBar()
+            }
+            if job.kind == .watch && ![.completed, .failed, .cancelled].contains(job.status) && job.progress >= 0.1 {
+                ProgressView(value: min(max(job.progress, 0), 1))
+                    .tint(.white)
             }
             if job.kind.isLive && job.status == .running {
                 LivePulseBar()
@@ -64,7 +71,7 @@ private struct JobActions: View {
 
     var body: some View {
         HStack(spacing: 2) {
-            if !job.kind.isLive && [.running, .paused].contains(job.status) {
+            if job.kind.canPause && [.running, .paused].contains(job.status) {
                 Button(action: onTogglePause) {
                     Image(systemName: job.status == .paused ? "play.fill" : "pause.fill")
                 }
@@ -90,14 +97,15 @@ private struct StatusChip: View {
     var body: some View {
         let pair: (String, Color) = {
             if job.kind.isLive && job.status == .running { return ("LIVE", .liveCoral) }
+            if job.kind == .watch && job.status == .running && job.progress < 0.1 { return ("WAIT", Color.secondary) }
             switch job.status {
-            case .paused: return ("PAUSED", .cheddar)
+            case .paused: return ("PAUSED", Color.secondary)
             case .completed: return ("DONE", .okSage)
             case .cancelled: return ("CANCEL", Color.secondary)
             case .failed: return ("FAIL", .liveCoral)
             case .stopped: return ("STOP", Color.secondary)
             case .queued: return ("WAIT", Color.secondary)
-            case .running: return (job.kind == .clip ? "CLIP" : "VOD", .cheddar)
+            case .running: return (job.kind == .clip ? "CLIP" : "VOD", Color.primary)
             }
         }()
         Text(pair.0)
@@ -112,7 +120,7 @@ private struct ChannelMark: View {
     let running: Bool
 
     var body: some View {
-        let palette: [Color] = [.cheddar, .liveCoral, .okSage, .adultClay, Color(red: 0.48, green: 0.64, blue: 0.77)]
+        let palette: [Color] = [.okSage, .liveCoral, .adultClay, Color(red: 0.48, green: 0.64, blue: 0.77), Color(white: 0.55)]
         let color = palette[abs(name.hashValue) % palette.count]
         ZStack(alignment: .topTrailing) {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -161,6 +169,9 @@ private func statusCaption(_ job: DownloadJob) -> String? {
     switch job.status {
     case .running:
         if job.kind.isLive { return "녹화 중" }
+        if job.kind == .watch && job.progress < 0.1 {
+            return job.progress == 0 ? "방송 중" : "다시보기 대기"
+        }
         let percent = Int(job.progress * 100)
         if job.attempt > 1 { return "\(percent)% · 재시도 \(job.attempt)/\(job.maxAttempts)" }
         return "\(percent)%"
