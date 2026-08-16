@@ -1,6 +1,6 @@
 cask "cracker" do
   version "1.1.1"
-  sha256 :no_check
+  sha256 "4b9d98f5f0d9316b794bc463315324d98b344fa2ca5cd538724eb92c627c5a64"
 
   url "https://github.com/s3mng/chz-mac/releases/download/v#{version}/cracker-#{version}.dmg"
   name "Cracker"
