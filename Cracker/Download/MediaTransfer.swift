@@ -7,7 +7,8 @@ struct MediaTransfer {
     func recordLive(
         mediaPlaylistURL: URL,
         output: URL,
-        isCancelled: @escaping () -> Bool
+        isCancelled: @escaping () -> Bool,
+        onBytes: @escaping (Int) -> Void
     ) async throws {
         try FileManager.default.createDirectory(at: output.deletingLastPathComponent(), withIntermediateDirectories: true)
         if FileManager.default.fileExists(atPath: output.path) {
@@ -44,7 +45,8 @@ struct MediaTransfer {
             }
 
             if !wroteMap, let map = playlist.mapURI {
-                try await downloadWithRetry(map, to: handle, isCancelled: isCancelled)
+                let bytes = try await downloadWithRetry(map, to: handle, isCancelled: isCancelled)
+                onBytes(bytes)
                 wroteMap = true
                 wroteAny = true
             }
@@ -62,7 +64,8 @@ struct MediaTransfer {
 
             for (index, segment) in newSegments.enumerated() {
                 if isCancelled() { return }
-                try await downloadWithRetry(segment.uri, to: handle, isCancelled: isCancelled)
+                let bytes = try await downloadWithRetry(segment.uri, to: handle, isCancelled: isCancelled)
+                onBytes(bytes)
                 nextSequence = startSeq + Int64(index) + 1
                 wroteAny = true
             }
@@ -80,6 +83,7 @@ struct MediaTransfer {
         quality: QualityOption,
         output: URL,
         onProgress: @escaping (Double) -> Void,
+        onBytes: @escaping (Int) -> Void,
         isPaused: @escaping () -> Bool,
         isCancelled: @escaping () -> Bool
     ) async throws {
@@ -89,6 +93,7 @@ struct MediaTransfer {
                 mediaURL: quality.mediaURL,
                 output: output,
                 onProgress: onProgress,
+                onBytes: onBytes,
                 isPaused: isPaused,
                 isCancelled: isCancelled
             )
@@ -97,6 +102,7 @@ struct MediaTransfer {
                 quality: quality,
                 output: output,
                 onProgress: onProgress,
+                onBytes: onBytes,
                 isPaused: isPaused,
                 isCancelled: isCancelled
             )
@@ -107,6 +113,7 @@ struct MediaTransfer {
         mediaURL: URL,
         output: URL,
         onProgress: @escaping (Double) -> Void,
+        onBytes: @escaping (Int) -> Void,
         isPaused: @escaping () -> Bool,
         isCancelled: @escaping () -> Bool
     ) async throws {
@@ -120,7 +127,8 @@ struct MediaTransfer {
 
         if let map = playlist.mapURI {
             try await waitIfPaused(isPaused: isPaused, isCancelled: isCancelled)
-            try await downloadWithRetry(map, to: handle, isCancelled: isCancelled)
+            let bytes = try await downloadWithRetry(map, to: handle, isCancelled: isCancelled)
+            onBytes(bytes)
             done += 1
             onProgress(Double(done) / Double(total))
         }
@@ -128,7 +136,8 @@ struct MediaTransfer {
             if isCancelled() { return }
             try await waitIfPaused(isPaused: isPaused, isCancelled: isCancelled)
             try Task.checkCancellation()
-            try await downloadWithRetry(segment.uri, to: handle, isCancelled: isCancelled)
+            let bytes = try await downloadWithRetry(segment.uri, to: handle, isCancelled: isCancelled)
+            onBytes(bytes)
             done += 1
             onProgress(Double(done) / Double(total))
         }
@@ -138,6 +147,7 @@ struct MediaTransfer {
         quality: QualityOption,
         output: URL,
         onProgress: @escaping (Double) -> Void,
+        onBytes: @escaping (Int) -> Void,
         isPaused: @escaping () -> Bool,
         isCancelled: @escaping () -> Bool
     ) async throws {
@@ -161,7 +171,8 @@ struct MediaTransfer {
         for url in video.segmentURLs {
             if isCancelled() { return }
             try await waitIfPaused(isPaused: isPaused, isCancelled: isCancelled)
-            try await downloadWithRetry(url, to: videoHandle, isCancelled: isCancelled)
+            let bytes = try await downloadWithRetry(url, to: videoHandle, isCancelled: isCancelled)
+            onBytes(bytes)
             done += 1
             onProgress(Double(done) / Double(max(urls.count, 1)) * 0.9)
         }
@@ -173,7 +184,8 @@ struct MediaTransfer {
             for url in audio.segmentURLs {
                 if isCancelled() { return }
                 try await waitIfPaused(isPaused: isPaused, isCancelled: isCancelled)
-                try await downloadWithRetry(url, to: audioHandle, isCancelled: isCancelled)
+                let bytes = try await downloadWithRetry(url, to: audioHandle, isCancelled: isCancelled)
+                onBytes(bytes)
                 done += 1
                 onProgress(Double(done) / Double(max(urls.count, 1)) * 0.9)
             }
@@ -197,9 +209,9 @@ struct MediaTransfer {
             AppLog.shared.i("mux done")
         } catch {
             muxBeat.cancel()
-            AppLog.shared.w("mux fail, keep video")
+            AppLog.shared.e("mux fail \(error.localizedDescription)")
             try? FileManager.default.removeItem(at: output)
-            try FileManager.default.copyItem(at: videoFile, to: output)
+            throw error
         }
         onProgress(1)
     }
@@ -209,13 +221,13 @@ struct MediaTransfer {
         return HlsParser.parseMedia(body, playlistURL: url)
     }
 
-    private func downloadWithRetry(_ url: URL, to handle: FileHandle, isCancelled: @escaping () -> Bool) async throws {
+    @discardableResult
+    private func downloadWithRetry(_ url: URL, to handle: FileHandle, isCancelled: @escaping () -> Bool) async throws -> Int {
         var lastError: Error = TransferError.message("조각을 받지 못했어요")
         for attempt in 1...fragmentRetries {
-            if isCancelled() { return }
+            if isCancelled() { return 0 }
             do {
-                try await http.download(url, to: handle)
-                return
+                return try await http.download(url, to: handle)
             } catch {
                 lastError = error
                 AppLog.shared.w("seg retry \(attempt)/\(fragmentRetries) \(error.localizedDescription)")

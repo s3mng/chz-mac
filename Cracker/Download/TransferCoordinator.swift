@@ -114,6 +114,7 @@ final class TransferCoordinator: @unchecked Sendable {
         lock.unlock()
         guard var job else { return }
         job.status = job.kind == .live ? .stopped : .cancelled
+        job.speedLabel = nil
         job.error = nil
         upsert(job)
         AppLog.shared.i("cancel \(job.kind.rawValue) \(AppLog.clip(job.title, 20))")
@@ -155,6 +156,7 @@ final class TransferCoordinator: @unchecked Sendable {
         case .running:
             pauseFlags[id] = true
             job.status = .paused
+            job.speedLabel = nil
             jobs = [job] + jobs.filter { $0.id != id }
             lock.unlock()
             persist()
@@ -413,21 +415,27 @@ final class TransferCoordinator: @unchecked Sendable {
             try? FileManager.default.removeItem(at: staging)
             let startedAt = Date()
             var lastBucket = -1
-            let ticker: Task<Void, Never>? = live ? Task { [weak self] in
+            let meter = SpeedMeter()
+            let ticker = Task { [weak self] in
                 while !(self?.cancelled(id) ?? true) {
-                    guard let self, let current = self.snapshot.first(where: { $0.id == id }), current.status == .running else { break }
-                    var copy = current
-                    copy.elapsedLabel = Formatters.clock(Int64(Date().timeIntervalSince(startedAt) * 1000))
-                    self.upsert(copy)
+                    guard let self else { break }
+                    var current = self.job(id, fallback: request.job)
+                    guard [.running, .paused].contains(current.status) else { break }
+                    if live {
+                        current.elapsedLabel = Formatters.clock(Int64(Date().timeIntervalSince(startedAt) * 1000))
+                    }
+                    current.speedLabel = current.status == .running ? meter.tick() : nil
+                    self.upsert(current)
                     try? await Task.sleep(for: .seconds(1))
                 }
-            } : nil
+            }
             do {
                 if live {
                     try await transfer.recordLive(
                         mediaPlaylistURL: request.quality.mediaURL,
                         output: staging,
-                        isCancelled: { [weak self] in self?.cancelled(id) ?? true }
+                        isCancelled: { [weak self] in self?.cancelled(id) ?? true },
+                        onBytes: { meter.add($0) }
                     )
                 } else {
                     try await transfer.downloadVod(
@@ -438,6 +446,7 @@ final class TransferCoordinator: @unchecked Sendable {
                             var current = self.job(id, fallback: request.job)
                             current.progress = value
                             current.status = self.paused(id) ? .paused : .running
+                            current.speedLabel = current.status == .running ? meter.peek() : nil
                             self.upsert(current)
                             let bucket = Int(value * 10)
                             if bucket != lastBucket {
@@ -445,20 +454,23 @@ final class TransferCoordinator: @unchecked Sendable {
                                 AppLog.shared.i("dl \(bucket * 10)%")
                             }
                         },
+                        onBytes: { meter.add($0) },
                         isPaused: { [weak self] in self?.paused(id) ?? false },
                         isCancelled: { [weak self] in self?.cancelled(id) ?? true }
                     )
                 }
-                ticker?.cancel()
+                ticker.cancel()
                 if cancelled(id) {
                     await finishCancelled(id: id, request: request, live: live, staging: staging, startedAt: startedAt)
                     return
                 }
-                try publish(staging, title: request.title, ext: extensionName)
+                let saved = await finalizeMedia(staging)
+                try publish(saved.url, title: request.title, ext: saved.ext)
                 var finished = job(id, fallback: request.job)
                 finished.status = .completed
                 finished.progress = 1
                 finished.elapsedLabel = live ? Formatters.clock(Int64(Date().timeIntervalSince(startedAt) * 1000)) : nil
+                finished.speedLabel = nil
                 finished.error = nil
                 upsert(finished)
                 lock.lock()
@@ -468,21 +480,23 @@ final class TransferCoordinator: @unchecked Sendable {
                 AppLog.shared.i("dl done \(AppLog.clip(request.title, 20))")
                 return
             } catch is CancellationError {
-                ticker?.cancel()
+                ticker.cancel()
                 await finishCancelled(id: id, request: request, live: live, staging: staging, startedAt: startedAt)
                 return
             } catch {
-                ticker?.cancel()
+                ticker.cancel()
                 if cancelled(id) {
                     await finishCancelled(id: id, request: request, live: live, staging: staging, startedAt: startedAt)
                     return
                 }
                 lastError = error
                 if live, fileSize(staging) > 0 {
-                    try? publish(staging, title: request.title, ext: extensionName)
+                    let saved = await finalizeMedia(staging)
+                    try? publish(saved.url, title: request.title, ext: saved.ext)
                     var stopped = job(id, fallback: request.job)
                     stopped.status = .stopped
                     stopped.elapsedLabel = Formatters.clock(Int64(Date().timeIntervalSince(startedAt) * 1000))
+                    stopped.speedLabel = nil
                     stopped.error = "연결이 끊겨서 여기까지 저장했어요"
                     upsert(stopped)
                     lock.lock()
@@ -511,9 +525,11 @@ final class TransferCoordinator: @unchecked Sendable {
             return
         }
         if live, fileSize(staging) > 0 {
-            try? publish(staging, title: request.title, ext: staging.pathExtension)
+            let saved = await finalizeMedia(staging)
+            try? publish(saved.url, title: request.title, ext: saved.ext)
             var stopped = job(id, fallback: request.job)
             stopped.status = .stopped
+            stopped.speedLabel = nil
             if let startedAt {
                 stopped.elapsedLabel = Formatters.clock(Int64(Date().timeIntervalSince(startedAt) * 1000))
             }
@@ -523,6 +539,7 @@ final class TransferCoordinator: @unchecked Sendable {
             try? FileManager.default.removeItem(at: staging)
             var copy = job(id, fallback: request.job)
             copy.status = live ? .stopped : .cancelled
+            copy.speedLabel = nil
             copy.error = nil
             upsert(copy)
         }
@@ -531,6 +548,25 @@ final class TransferCoordinator: @unchecked Sendable {
         discarded.remove(id)
         lock.unlock()
         AppLog.shared.i("stop \(live ? "live" : "job") \(AppLog.clip(request.title, 18))")
+    }
+
+    private func finalizeMedia(_ staging: URL) async -> (url: URL, ext: String) {
+        let ext = staging.pathExtension.lowercased()
+        guard ext == "ts", fileSize(staging) > 0 else {
+            return (staging, staging.pathExtension)
+        }
+        let mp4 = staging.deletingPathExtension().appendingPathExtension("mp4")
+        do {
+            AppLog.shared.i("remux start")
+            try await Mp4Muxer.remux(from: staging, to: mp4)
+            try? FileManager.default.removeItem(at: staging)
+            AppLog.shared.i("remux done")
+            return (mp4, "mp4")
+        } catch {
+            AppLog.shared.w("remux fail \(error.localizedDescription)")
+            try? FileManager.default.removeItem(at: mp4)
+            return (staging, ext)
+        }
     }
 
     private func publish(_ staging: URL, title: String, ext: String) throws {
@@ -626,6 +662,7 @@ final class TransferCoordinator: @unchecked Sendable {
             if [.queued, .running, .paused].contains(job.status) {
                 copy.status = .failed
                 copy.error = "앱이 종료되어 중단됐어요"
+                copy.speedLabel = nil
                 AppLog.shared.w("restore fail \(AppLog.clip(job.title, 20))")
             }
             return copy
@@ -642,6 +679,7 @@ final class TransferCoordinator: @unchecked Sendable {
             var copy = job
             copy.status = .failed
             copy.error = "응답이 멈춰서 절전 방지를 풀었어요"
+            copy.speedLabel = nil
             upsert(copy)
             AppLog.shared.e("expire \(AppLog.clip(job.title, 20))")
         }
@@ -673,5 +711,43 @@ final class TransferCoordinator: @unchecked Sendable {
         DispatchQueue.main.async { [weak self] in
             self?.onChange?(jobs)
         }
+    }
+}
+
+private final class SpeedMeter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var windowBytes: Int64 = 0
+    private var windowStart = Date()
+    private var last: String?
+
+    func add(_ count: Int) {
+        guard count > 0 else { return }
+        lock.lock()
+        windowBytes += Int64(count)
+        refreshLocked()
+        lock.unlock()
+    }
+
+    func peek() -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return last
+    }
+
+    func tick() -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+        refreshLocked()
+        return last
+    }
+
+    private func refreshLocked() {
+        let now = Date()
+        let dt = now.timeIntervalSince(windowStart)
+        guard dt >= 0.4 else { return }
+        let bps = Double(windowBytes) / dt
+        windowBytes = 0
+        windowStart = now
+        last = bps < 256 ? nil : Formatters.rate(bps)
     }
 }

@@ -48,13 +48,14 @@ final class HTTPClient: @unchecked Sendable {
         return content
     }
 
-    func download(_ url: URL, to handle: FileHandle) async throws {
+    func download(_ url: URL, to handle: FileHandle) async throws -> Int {
         let (data, response) = try await data(from: url)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             let code = (response as? HTTPURLResponse)?.statusCode ?? 0
             throw TransferError.message("HTTP \(code)")
         }
         try handle.write(contentsOf: data)
+        return data.count
     }
 
     func data(from url: URL, headers: [String: String] = [:]) async throws -> (Data, URLResponse) {

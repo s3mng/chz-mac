@@ -5,6 +5,7 @@ struct HlsVariant: Sendable {
     let bandwidth: Int
     let width: Int?
     let height: Int?
+    let codecs: String?
 }
 
 struct HlsSegment: Sendable {
@@ -41,7 +42,8 @@ enum HlsParser {
                             uri: uri,
                             bandwidth: Int(attrs["BANDWIDTH"] ?? "") ?? 0,
                             width: resolution.flatMap { Int($0.split(separator: "x").first.map(String.init) ?? "") },
-                            height: resolution.flatMap { Int($0.split(separator: "x").dropFirst().first.map(String.init) ?? "") }
+                            height: resolution.flatMap { Int($0.split(separator: "x").dropFirst().first.map(String.init) ?? "") },
+                            codecs: attrs["CODECS"]?.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
                         )
                     )
                     i += 1
@@ -49,7 +51,12 @@ enum HlsParser {
             }
             i += 1
         }
-        return variants.sorted { ($0.height ?? $0.bandwidth) > ($1.height ?? $1.bandwidth) }
+        return variants.sorted {
+            VideoCodec.betterForPlayback(
+                ($0.height, $0.codecs, $0.bandwidth),
+                ($1.height, $1.codecs, $1.bandwidth)
+            )
+        }
     }
 
     static func parseMedia(_ body: String, playlistURL: URL) -> HlsMediaPlaylist {

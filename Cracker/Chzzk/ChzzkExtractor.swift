@@ -284,10 +284,12 @@ struct ChzzkExtractor: Sendable {
         }
         return HlsParser.parseMaster(body, playlistURL: url).enumerated().map { index, variant in
             let label = variant.height.map { "\($0)p" } ?? "\(variant.bandwidth / 1000)k"
+            let codec = VideoCodec.shortLabel(variant.codecs)
+            let noteParts = [codec, index == 0 ? "추천" : nil].compactMap { $0 }
             return QualityOption(
                 id: "hls-\(index)-\(variant.height ?? variant.bandwidth)",
                 label: label,
-                note: index == 0 ? "HLS · 추천" : "HLS",
+                note: noteParts.isEmpty ? "HLS" : noteParts.joined(separator: " · "),
                 protocolKind: .hls,
                 mediaURL: variant.uri
             )
@@ -297,13 +299,20 @@ struct ChzzkExtractor: Sendable {
     private func dashQualities(_ mpdURL: URL) async throws -> [QualityOption] {
         let xml = try await http.getText(mpdURL, headers: ["Accept": "application/dash+xml"])
         let reps = DashParser.parse(xml, mpdURL: mpdURL)
-        let videos = reps.filter { $0.contentType == "video" }.sorted { ($0.height ?? 0) > ($1.height ?? 0) }
+        let videos = reps.filter { $0.contentType == "video" }.sorted {
+            VideoCodec.betterForPlayback(
+                ($0.height, $0.codecs, $0.bandwidth),
+                ($1.height, $1.codecs, $1.bandwidth)
+            )
+        }
         let audioId = reps.filter { $0.contentType == "audio" }.max(by: { $0.bandwidth < $1.bandwidth })?.id
         return videos.enumerated().map { index, video in
-            QualityOption(
+            let codec = VideoCodec.shortLabel(video.codecs)
+            let noteParts = [codec, index == 0 ? "추천" : nil].compactMap { $0 }
+            return QualityOption(
                 id: "dash-\(video.id)",
                 label: video.height.map { "\($0)p" } ?? video.id,
-                note: index == 0 ? "DASH · 추천" : "DASH",
+                note: noteParts.isEmpty ? "DASH" : noteParts.joined(separator: " · "),
                 protocolKind: .dash,
                 mediaURL: mpdURL,
                 dashVideoRepId: video.id,

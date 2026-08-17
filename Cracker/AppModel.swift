@@ -10,7 +10,6 @@ final class AppModel {
     var isLoggedIn = false
     var isResolving = false
     var pendingMeta: VideoMeta?
-    var selectedQualityId: String?
     var toast: String?
     var showLogin = false
     var vodRetries: Int
@@ -63,7 +62,6 @@ final class AppModel {
             switch result {
             case .ready(let meta):
                 pendingMeta = meta
-                selectedQualityId = meta.qualities.first?.id
                 AppLog.shared.i("resolve \(meta.kind.rawValue) \(AppLog.clip(meta.title, 20)) q=\(meta.qualities.count)")
             case .needsLogin(let reason):
                 AppLog.shared.w("resolve login \(reason)")
@@ -80,7 +78,6 @@ final class AppModel {
 
     func dismissSheet() {
         pendingMeta = nil
-        selectedQualityId = nil
     }
 
     func confirmPending() {
@@ -89,12 +86,10 @@ final class AppModel {
             flash("성인 영상은 네이버 로그인이 필요해요")
             return
         }
-        let quality = meta.qualities.first { $0.id == selectedQualityId } ?? meta.qualities.first
-        guard let quality else { return }
+        guard let quality = meta.qualities.first else { return }
         coordinator.enqueue(meta: meta, quality: quality)
         url = ""
         pendingMeta = nil
-        selectedQualityId = nil
     }
 
     func cancelJob(_ id: String) { coordinator.cancel(id: id) }

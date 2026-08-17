@@ -143,13 +143,8 @@ struct SettingsView: View {
                 HStack(alignment: .center, spacing: 10) {
                     Image(systemName: "doc.text")
                         .foregroundStyle(Color.secondary)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("앱 로그")
-                            .font(.system(size: 16, weight: .semibold))
-                        Text("짧게 남기고, 대기·받기·요청을 최대한 기록합니다")
-                            .font(.system(size: 13))
-                            .foregroundStyle(.secondary)
-                    }
+                    Text("앱 로그")
+                        .font(.system(size: 16, weight: .semibold))
                     Spacer()
                 }
             }

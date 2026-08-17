@@ -6,6 +6,7 @@ struct DashRepresentation: Sendable {
     let bandwidth: Int
     let width: Int?
     let height: Int?
+    let codecs: String?
     let segmentURLs: [URL]
 }
 
@@ -28,6 +29,7 @@ private final class OpenRep {
     let bandwidth: Int
     let width: Int?
     let height: Int?
+    var codecs: String?
     var timescale: Int64?
     var duration: Int64?
     var startNumber: Int64?
@@ -37,11 +39,12 @@ private final class OpenRep {
     var segmentList: [String]?
     var base: URL
 
-    init(id: String, bandwidth: Int, width: Int?, height: Int?, base: URL) {
+    init(id: String, bandwidth: Int, width: Int?, height: Int?, codecs: String?, base: URL) {
         self.id = id
         self.bandwidth = bandwidth
         self.width = width
         self.height = height
+        self.codecs = codecs
         self.base = base
     }
 }
@@ -53,6 +56,7 @@ private final class DashXMLParser: NSObject, XMLParserDelegate {
     private var mpdDuration = 0.0
     private var periodDuration = 0.0
     private var asType = ""
+    private var asCodecs = ""
     private var asBase: URL?
     private var asTimescale: Int64 = 1
     private var asDuration: Int64 = 0
@@ -97,6 +101,7 @@ private final class DashXMLParser: NSObject, XMLParserDelegate {
         case "Period":
             periodDuration = attributeDict["duration"].map(Formatters.isoDurationSeconds) ?? mpdDuration
             asType = ""
+            asCodecs = ""
             asBase = nil
             asTimescale = 1
             asDuration = 0
@@ -109,6 +114,7 @@ private final class DashXMLParser: NSObject, XMLParserDelegate {
             asType = attributeDict["contentType"]
                 ?? attributeDict["mimeType"]?.split(separator: "/").first.map(String.init)
                 ?? ""
+            asCodecs = attributeDict["codecs"] ?? ""
         case "Representation":
             let mime = attributeDict["mimeType"] ?? ""
             let type: String
@@ -129,6 +135,10 @@ private final class DashXMLParser: NSObject, XMLParserDelegate {
                 bandwidth: Int(attributeDict["bandwidth"] ?? "") ?? 0,
                 width: Int(attributeDict["width"] ?? ""),
                 height: Int(attributeDict["height"] ?? ""),
+                codecs: {
+                    let value = attributeDict["codecs"] ?? asCodecs
+                    return value.isEmpty ? nil : value
+                }(),
                 base: asBase ?? baseStack.last ?? root
             )
         case "SegmentTemplate":
@@ -242,6 +252,7 @@ private final class DashXMLParser: NSObject, XMLParserDelegate {
                             bandwidth: rep.bandwidth,
                             width: rep.width,
                             height: rep.height,
+                            codecs: rep.codecs,
                             segmentURLs: urls
                         )
                     )

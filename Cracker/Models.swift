@@ -56,6 +56,7 @@ struct DownloadJob: Identifiable, Hashable, Codable, Sendable {
     var status: JobStatus
     var progress: Double = 0
     var elapsedLabel: String?
+    var speedLabel: String?
     var isAdult: Bool = false
     var error: String?
     var attempt: Int = 1
@@ -173,5 +174,37 @@ enum Formatters {
         formatter.allowedUnits = [.useKB, .useMB, .useGB]
         formatter.countStyle = .file
         return formatter.string(fromByteCount: value)
+    }
+
+    static func rate(_ bytesPerSecond: Double) -> String {
+        bytes(Int64(max(bytesPerSecond, 0).rounded())) + "/s"
+    }
+}
+
+enum VideoCodec {
+    static func isH264(_ codecs: String?) -> Bool {
+        let value = (codecs ?? "").lowercased()
+        return value.contains("avc1") || value.contains("avc3")
+    }
+
+    static func shortLabel(_ codecs: String?) -> String? {
+        let value = (codecs ?? "").lowercased()
+        if isH264(codecs) { return "H.264" }
+        if value.contains("hvc1") || value.contains("hev1") { return "HEVC" }
+        if value.contains("av01") { return "AV1" }
+        return nil
+    }
+
+    static func betterForPlayback(
+        _ lhs: (height: Int?, codecs: String?, bandwidth: Int),
+        _ rhs: (height: Int?, codecs: String?, bandwidth: Int)
+    ) -> Bool {
+        let leftHeight = lhs.height ?? 0
+        let rightHeight = rhs.height ?? 0
+        if leftHeight != rightHeight { return leftHeight > rightHeight }
+        let leftH264 = isH264(lhs.codecs)
+        let rightH264 = isH264(rhs.codecs)
+        if leftH264 != rightH264 { return leftH264 }
+        return lhs.bandwidth > rhs.bandwidth
     }
 }

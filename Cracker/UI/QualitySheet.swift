@@ -2,7 +2,6 @@ import SwiftUI
 
 struct QualitySheet: View {
     let meta: VideoMeta
-    @Binding var selectedQualityId: String?
     let isLoggedIn: Bool
     var onConfirm: () -> Void
     var onDismiss: () -> Void
@@ -22,16 +21,9 @@ struct QualitySheet: View {
             if meta.isAdult {
                 AdultBanner(isLoggedIn: isLoggedIn)
             }
-            if meta.kind == .watch {
-                Text("방송이 끝나면 다시보기를 최대 15분 기다립니다.")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
-            } else {
-                Text("화질")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                FlowQualities(qualities: meta.qualities, selectedId: $selectedQualityId)
-            }
+            Text(autoPickLine)
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
             let needsLogin = meta.isAdult && !isLoggedIn
             Button(action: needsLogin ? onLogin : onConfirm) {
                 Text(buttonTitle(needsLogin: needsLogin))
@@ -68,6 +60,23 @@ struct QualitySheet: View {
         case .watch: "다시보기 대기"
         }
     }
+
+    private var autoPickLine: String {
+        if meta.kind == .watch {
+            return "방송이 끝나면 다시보기를 최대 15분 기다립니다. 다시보기는 가장 잘 열리는 화질로 받습니다."
+        }
+        guard let quality = meta.qualities.first else {
+            return "가장 잘 열리는 화질로 저장합니다."
+        }
+        let codec = quality.note
+            .replacingOccurrences(of: " · 추천", with: "")
+            .replacingOccurrences(of: "추천", with: "")
+            .trimmingCharacters(in: .whitespaces)
+        if codec.isEmpty || codec == "HLS" || codec == "DASH" {
+            return "\(quality.label)로 저장합니다."
+        }
+        return "\(quality.label) · \(codec)로 저장합니다."
+    }
 }
 
 private struct AdultBanner: View {
@@ -92,31 +101,3 @@ private struct AdultBanner: View {
     }
 }
 
-private struct FlowQualities: View {
-    let qualities: [QualityOption]
-    @Binding var selectedId: String?
-
-    var body: some View {
-        HStack(spacing: 8) {
-            ForEach(qualities) { option in
-                let selected = option.id == selectedId
-                Button {
-                    selectedId = option.id
-                } label: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(option.label)
-                            .font(.system(size: 13, weight: .semibold))
-                        Text(option.note)
-                            .font(.system(size: 10, weight: .medium))
-                            .opacity(0.8)
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(selected ? Color.white : Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .foregroundStyle(selected ? Color.black : Color.primary)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-    }
-}

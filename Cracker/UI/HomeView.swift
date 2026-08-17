@@ -32,7 +32,6 @@ struct HomeView: View {
                 if let meta = model.pendingMeta {
                     QualitySheet(
                         meta: meta,
-                        selectedQualityId: $model.selectedQualityId,
                         isLoggedIn: model.isLoggedIn,
                         onConfirm: model.confirmPending,
                         onDismiss: model.dismissSheet,

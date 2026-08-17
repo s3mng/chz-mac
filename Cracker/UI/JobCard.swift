@@ -60,7 +60,7 @@ struct JobCard: View {
     }
 
     private var caption: String {
-        [job.channel, job.elapsedLabel, statusCaption(job)].compactMap { $0 }.joined(separator: "  ·  ")
+        [job.channel, job.elapsedLabel, job.speedLabel, statusCaption(job)].compactMap { $0 }.joined(separator: "  ·  ")
     }
 }
 
