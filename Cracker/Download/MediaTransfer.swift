@@ -16,6 +16,7 @@ struct MediaTransfer {
         FileManager.default.createFile(atPath: output.path, contents: nil)
         let handle = try FileHandle(forWritingTo: output)
         defer { try? handle.close() }
+        AppLog.shared.i("live rec start")
 
         var nextSequence: Int64 = -1
         var wroteMap = false
@@ -31,9 +32,11 @@ struct MediaTransfer {
             } catch {
                 playlistFailures += 1
                 if wroteAny && playlistFailures >= 6 {
+                    AppLog.shared.w("live playlist miss \(playlistFailures) end")
                     return
                 }
                 if playlistFailures >= 12 {
+                    AppLog.shared.e("live playlist fail \(playlistFailures)")
                     throw error
                 }
                 try await Task.sleep(for: .milliseconds(min(800 * playlistFailures, 4_000)))
@@ -64,7 +67,10 @@ struct MediaTransfer {
                 wroteAny = true
             }
 
-            if playlist.ended { return }
+            if playlist.ended {
+                AppLog.shared.i("live rec end")
+                return
+            }
             let wait = min(max(playlist.targetDurationSec * 500, 400), 4_000)
             try await Task.sleep(for: .milliseconds(Int(wait)))
         }
@@ -174,13 +180,24 @@ struct MediaTransfer {
             try audioHandle.close()
         }
 
+        let muxBeat = Task {
+            while !Task.isCancelled {
+                SleepGuard.shared.heartbeat()
+                try? await Task.sleep(for: .seconds(15))
+            }
+        }
         do {
+            AppLog.shared.i("mux start")
             try await Mp4Muxer.mux(
                 video: videoFile,
                 audio: audio != nil && FileManager.default.fileExists(atPath: audioFile.path) ? audioFile : nil,
                 output: output
             )
+            muxBeat.cancel()
+            AppLog.shared.i("mux done")
         } catch {
+            muxBeat.cancel()
+            AppLog.shared.w("mux fail, keep video")
             try? FileManager.default.removeItem(at: output)
             try FileManager.default.copyItem(at: videoFile, to: output)
         }
@@ -201,6 +218,7 @@ struct MediaTransfer {
                 return
             } catch {
                 lastError = error
+                AppLog.shared.w("seg retry \(attempt)/\(fragmentRetries) \(error.localizedDescription)")
                 if attempt == fragmentRetries { throw error }
                 try await Task.sleep(for: .milliseconds(min(400 * attempt, 3_000)))
             }
@@ -210,6 +228,7 @@ struct MediaTransfer {
 
     private func waitIfPaused(isPaused: @escaping () -> Bool, isCancelled: @escaping () -> Bool) async throws {
         while isPaused() && !isCancelled() {
+            SleepGuard.shared.heartbeat()
             try await Task.sleep(for: .milliseconds(250))
         }
     }

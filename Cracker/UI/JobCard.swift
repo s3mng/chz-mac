@@ -37,10 +37,10 @@ struct JobCard: View {
                 ProgressView(value: min(max(job.progress, 0), 1))
                     .tint(.white)
             }
-            if job.kind == .watch && job.status == .running && job.progress < 0.1 {
+            if job.kind == .watch && job.status == .running && job.isWatchHold {
                 LivePulseBar()
             }
-            if job.kind == .watch && ![.completed, .failed, .cancelled].contains(job.status) && job.progress >= 0.1 {
+            if job.kind == .watch && ![.completed, .failed, .cancelled].contains(job.status) && !job.isWatchHold {
                 ProgressView(value: min(max(job.progress, 0), 1))
                     .tint(.white)
             }
@@ -97,7 +97,7 @@ private struct StatusChip: View {
     var body: some View {
         let pair: (String, Color) = {
             if job.kind.isLive && job.status == .running { return ("LIVE", .liveCoral) }
-            if job.kind == .watch && job.status == .running && job.progress < 0.1 { return ("WAIT", Color.secondary) }
+            if job.kind == .watch && job.status == .running && job.isWatchHold { return ("WAIT", Color.secondary) }
             switch job.status {
             case .paused: return ("PAUSED", Color.secondary)
             case .completed: return ("DONE", .okSage)
@@ -142,26 +142,10 @@ private struct ChannelMark: View {
 }
 
 private struct LivePulseBar: View {
-    @State private var shift = false
-
     var body: some View {
-        GeometryReader { geo in
-            Capsule()
-                .fill(Color.liveCoral.opacity(0.18))
-                .overlay(alignment: .leading) {
-                    Capsule()
-                        .fill(Color.liveCoral)
-                        .frame(width: geo.size.width * 0.35)
-                        .offset(x: shift ? geo.size.width * 0.6 : 0)
-                }
-                .clipShape(Capsule())
-        }
-        .frame(height: 5)
-        .onAppear {
-            withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true)) {
-                shift = true
-            }
-        }
+        Capsule()
+            .fill(Color.secondary.opacity(0.28))
+            .frame(height: 5)
     }
 }
 
@@ -169,8 +153,8 @@ private func statusCaption(_ job: DownloadJob) -> String? {
     switch job.status {
     case .running:
         if job.kind.isLive { return "녹화 중" }
-        if job.kind == .watch && job.progress < 0.1 {
-            return job.progress == 0 ? "방송 중" : "다시보기 대기"
+        if job.kind == .watch && job.isWatchHold {
+            return job.isReplayHold ? "다시보기 대기" : "방송 중"
         }
         let percent = Int(job.progress * 100)
         if job.attempt > 1 { return "\(percent)% · 재시도 \(job.attempt)/\(job.maxAttempts)" }

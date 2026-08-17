@@ -12,7 +12,7 @@ final class HTTPClient: @unchecked Sendable {
         let redirects = RedirectGuard(cookies: cookies)
         self.redirects = redirects
         let config = URLSessionConfiguration.ephemeral
-        config.waitsForConnectivity = true
+        config.waitsForConnectivity = false
         config.timeoutIntervalForRequest = 30
         config.timeoutIntervalForResource = 90
         config.httpShouldSetCookies = false
@@ -49,9 +49,7 @@ final class HTTPClient: @unchecked Sendable {
     }
 
     func download(_ url: URL, to handle: FileHandle) async throws {
-        var request = URLRequest(url: url)
-        applyCookie(&request)
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await data(from: url)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             let code = (response as? HTTPURLResponse)?.statusCode ?? 0
             throw TransferError.message("HTTP \(code)")
@@ -65,7 +63,31 @@ final class HTTPClient: @unchecked Sendable {
             request.setValue(value, forHTTPHeaderField: key)
         }
         applyCookie(&request)
-        return try await session.data(for: request)
+        let started = Date()
+        let api = url.host.map { HostKind.needsSessionCookie($0) } ?? false
+        do {
+            let result = try await session.data(for: request)
+            SleepGuard.shared.heartbeat()
+            logHTTP(url, response: result.1, error: nil, ms: Int(Date().timeIntervalSince(started) * 1000), always: api)
+            return result
+        } catch {
+            SleepGuard.shared.heartbeat()
+            logHTTP(url, response: nil, error: error, ms: Int(Date().timeIntervalSince(started) * 1000), always: true)
+            throw error
+        }
+    }
+
+    private func logHTTP(_ url: URL, response: URLResponse?, error: Error?, ms: Int, always: Bool) {
+        let code = (response as? HTTPURLResponse)?.statusCode
+        if !always, error == nil { return }
+        let path = url.path.split(separator: "/").suffix(2).joined(separator: "/")
+        if let error {
+            AppLog.shared.e("GET \(path) \(error.localizedDescription) \(ms)ms")
+        } else if let code {
+            let levelOK = (200..<300).contains(code)
+            let line = "GET \(path) \(code) \(ms)ms"
+            if levelOK { AppLog.shared.i(line) } else { AppLog.shared.e(line) }
+        }
     }
 
     private func applyCookie(_ request: inout URLRequest) {
@@ -98,6 +120,7 @@ private final class RedirectGuard: NSObject, URLSessionTaskDelegate, @unchecked 
         } else {
             next.setValue(nil, forHTTPHeaderField: "Cookie")
         }
+        AppLog.shared.i("redir \(url.host ?? "?")")
         completionHandler(next)
     }
 }

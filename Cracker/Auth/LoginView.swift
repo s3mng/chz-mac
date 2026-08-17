@@ -12,6 +12,7 @@ struct LoginView: View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
                 Button {
+                    AppLog.shared.i("login cancel")
                     onDone(false)
                 } label: {
                     Image(systemName: "chevron.left")
@@ -114,6 +115,7 @@ private struct LoginWebView: NSViewRepresentable {
                 if captured && HostKind.isChzzk(host) && !self.finished {
                     self.finished = true
                     DispatchQueue.main.async {
+                        AppLog.shared.i("login ok")
                         self.onDone(true)
                     }
                 }

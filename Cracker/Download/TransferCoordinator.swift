@@ -13,7 +13,6 @@ final class TransferCoordinator: @unchecked Sendable {
     private let settings: SettingsStore
     private let history: JobStore
     private let transfer: MediaTransfer
-    private let sleep = SleepGuard()
     private let lock = NSLock()
     private var jobs: [DownloadJob] = []
     private var queue: [String: TransferRequest] = [:]
@@ -37,6 +36,9 @@ final class TransferCoordinator: @unchecked Sendable {
         jobs = restore(history.load())
         history.save(jobs)
         publish()
+        SleepGuard.shared.onExpired = { [weak self] in
+            self?.expireStale()
+        }
     }
 
     var snapshot: [DownloadJob] {
@@ -91,14 +93,16 @@ final class TransferCoordinator: @unchecked Sendable {
         if meta.kind == .watch {
             var running = job
             running.status = .running
+            running.lookingForReplay = false
             upsert(running)
+            AppLog.shared.i("+\(meta.kind.rawValue) \(AppLog.clip(meta.channel, 12))/\(AppLog.clip(meta.title, 18))")
             Task.detached { [weak self] in
                 await self?.runWatch(id)
             }
-            startLoop()
             return
         }
         upsert(job)
+        AppLog.shared.i("+\(meta.kind.rawValue) \(AppLog.clip(meta.channel, 12))/\(AppLog.clip(meta.title, 18)) \(quality.label)")
         startLoop()
     }
 
@@ -112,6 +116,7 @@ final class TransferCoordinator: @unchecked Sendable {
         job.status = job.kind == .live ? .stopped : .cancelled
         job.error = nil
         upsert(job)
+        AppLog.shared.i("cancel \(job.kind.rawValue) \(AppLog.clip(job.title, 20))")
     }
 
     func remove(id: String) {
@@ -125,6 +130,7 @@ final class TransferCoordinator: @unchecked Sendable {
         deleteStaging(id)
         persist()
         publish()
+        AppLog.shared.i("rm \(id.prefix(8))")
     }
 
     func clearAll() {
@@ -136,6 +142,7 @@ final class TransferCoordinator: @unchecked Sendable {
         sweepStaging()
         persist()
         publish()
+        AppLog.shared.i("queue clear")
     }
 
     func togglePause(id: String) {
@@ -152,6 +159,7 @@ final class TransferCoordinator: @unchecked Sendable {
             lock.unlock()
             persist()
             publish()
+            AppLog.shared.i("pause \(AppLog.clip(job.title, 20))")
         case .paused:
             pauseFlags[id] = false
             job.status = .running
@@ -159,6 +167,7 @@ final class TransferCoordinator: @unchecked Sendable {
             lock.unlock()
             persist()
             publish()
+            AppLog.shared.i("resume \(AppLog.clip(job.title, 20))")
             startLoop()
         default:
             lock.unlock()
@@ -179,9 +188,9 @@ final class TransferCoordinator: @unchecked Sendable {
     }
 
     private func runLoop() async {
-        sleep.start()
+        SleepGuard.shared.start()
         defer {
-            sleep.stop()
+            SleepGuard.shared.stop()
             lock.lock()
             loopRunning = false
             lock.unlock()
@@ -214,6 +223,7 @@ final class TransferCoordinator: @unchecked Sendable {
                     copy.status = .failed
                     copy.error = error.localizedDescription
                     upsert(copy)
+                    AppLog.shared.e("fail \(copy.kind.rawValue) \(AppLog.clip(copy.title, 16)) \(error.localizedDescription)")
                 }
             }
         }
@@ -226,14 +236,16 @@ final class TransferCoordinator: @unchecked Sendable {
     }
 
     private func runWatch(_ id: String) async {
-        sleep.start()
-        defer { sleep.stop() }
+        SleepGuard.shared.start()
+        defer { SleepGuard.shared.stop() }
         do {
             try await waitForReplay(id)
         } catch is CancellationError {
+            AppLog.shared.i("watch cancel")
             return
         } catch {
             if cancelled(id) { return }
+            AppLog.shared.e("watch fail \(error.localizedDescription)")
             var copy = job(id, fallback: DownloadJob(
                 id: id,
                 kind: .watch,
@@ -269,35 +281,47 @@ final class TransferCoordinator: @unchecked Sendable {
                 var copy = current
                 copy.elapsedLabel = Formatters.clock(Int64(Date().timeIntervalSince(startedAt) * 1000))
                 self.upsert(copy)
-                try? await Task.sleep(for: .seconds(1))
+                try? await Task.sleep(for: .seconds(15))
             }
         }
         defer { ticker.cancel() }
 
+        var loggedClose = false
+        var replayMisses = 0
         while !cancelled(id) {
             try Task.checkCancellation()
+            SleepGuard.shared.heartbeat()
             let snapshot = try await extractor.liveSnapshot(channelId)
             if snapshot.isOpen {
                 closedAt = nil
+                loggedClose = false
                 liveTitle = snapshot.title
                 openDate = snapshot.openDate ?? openDate
                 var current = job(id, fallback: request.job)
                 current.status = .running
                 current.title = liveTitle
                 current.progress = 0
+                current.lookingForReplay = false
                 current.error = nil
                 upsert(current)
+                AppLog.shared.i("poll OPEN \(AppLog.clip(liveTitle, 22))")
                 try await Task.sleep(for: .seconds(20))
                 continue
             }
             if closedAt == nil { closedAt = Date() }
+            if !loggedClose {
+                loggedClose = true
+                AppLog.shared.i("poll CLOSE \(AppLog.clip(liveTitle, 22))")
+            }
             if let closedAt, Date().timeIntervalSince(closedAt) >= 15 * 60 {
+                AppLog.shared.e("replay timeout 15m")
                 throw TransferError.message("15분 안에 다시보기가 안 올라왔어요")
             }
             var waiting = job(id, fallback: request.job)
             waiting.status = .running
             waiting.title = liveTitle
-            waiting.progress = 0.05
+            waiting.progress = 0
+            waiting.lookingForReplay = true
             waiting.error = nil
             upsert(waiting)
             if let videoNo = try await extractor.findReplayVideoNo(
@@ -307,6 +331,7 @@ final class TransferCoordinator: @unchecked Sendable {
             ), let meta = try await extractor.videoIfReady(videoId: videoNo),
                let quality = meta.qualities.first {
                 if cancelled(id) { throw CancellationError() }
+                AppLog.shared.i("replay hit \(AppLog.clip(meta.title, 18)) \(quality.label)")
                 lock.lock()
                 queue[id] = TransferRequest(
                     job: request.job,
@@ -321,11 +346,14 @@ final class TransferCoordinator: @unchecked Sendable {
                 ready.quality = quality.label
                 ready.status = .queued
                 ready.progress = 0
+                ready.lookingForReplay = nil
                 ready.error = nil
                 upsert(ready)
                 startLoop()
                 return
             }
+            replayMisses += 1
+            AppLog.shared.i("replay miss \(replayMisses)")
             try await Task.sleep(for: .seconds(15))
         }
         throw CancellationError()
@@ -356,7 +384,9 @@ final class TransferCoordinator: @unchecked Sendable {
         current.attempt = 1
         current.maxAttempts = maxAttempts
         current.error = nil
+        current.lookingForReplay = nil
         upsert(current)
+        AppLog.shared.i("dl start \(current.kind.rawValue) \(AppLog.clip(current.title, 16)) \(request.quality.label) \(extensionName)")
 
         let staging = stagingURL(id: id, ext: extensionName)
         var lastError: Error?
@@ -373,6 +403,7 @@ final class TransferCoordinator: @unchecked Sendable {
                 retrying.maxAttempts = maxAttempts
                 retrying.error = nil
                 upsert(retrying)
+                AppLog.shared.w("dl retry \(attempt)/\(maxAttempts)")
                 try await Task.sleep(for: .milliseconds(min(1_000 * attempt, 5_000)))
                 if cancelled(id) {
                     await finishCancelled(id: id, request: request, live: live, staging: staging, startedAt: nil)
@@ -381,6 +412,7 @@ final class TransferCoordinator: @unchecked Sendable {
             }
             try? FileManager.default.removeItem(at: staging)
             let startedAt = Date()
+            var lastBucket = -1
             let ticker: Task<Void, Never>? = live ? Task { [weak self] in
                 while !(self?.cancelled(id) ?? true) {
                     guard let self, let current = self.snapshot.first(where: { $0.id == id }), current.status == .running else { break }
@@ -407,6 +439,11 @@ final class TransferCoordinator: @unchecked Sendable {
                             current.progress = value
                             current.status = self.paused(id) ? .paused : .running
                             self.upsert(current)
+                            let bucket = Int(value * 10)
+                            if bucket != lastBucket {
+                                lastBucket = bucket
+                                AppLog.shared.i("dl \(bucket * 10)%")
+                            }
                         },
                         isPaused: { [weak self] in self?.paused(id) ?? false },
                         isCancelled: { [weak self] in self?.cancelled(id) ?? true }
@@ -428,6 +465,7 @@ final class TransferCoordinator: @unchecked Sendable {
                 queue.removeValue(forKey: id)
                 discarded.remove(id)
                 lock.unlock()
+                AppLog.shared.i("dl done \(AppLog.clip(request.title, 20))")
                 return
             } catch is CancellationError {
                 ticker?.cancel()
@@ -451,6 +489,7 @@ final class TransferCoordinator: @unchecked Sendable {
                     queue.removeValue(forKey: id)
                     discarded.remove(id)
                     lock.unlock()
+                    AppLog.shared.w("live stop \(AppLog.clip(request.title, 18)) saved")
                     return
                 }
                 if attempt == maxAttempts {
@@ -463,6 +502,14 @@ final class TransferCoordinator: @unchecked Sendable {
     }
 
     private func finishCancelled(id: String, request: TransferRequest, live: Bool, staging: URL, startedAt: Date?) async {
+        let current = job(id, fallback: request.job)
+        if current.status == .failed {
+            lock.lock()
+            queue.removeValue(forKey: id)
+            discarded.remove(id)
+            lock.unlock()
+            return
+        }
         if live, fileSize(staging) > 0 {
             try? publish(staging, title: request.title, ext: staging.pathExtension)
             var stopped = job(id, fallback: request.job)
@@ -483,6 +530,7 @@ final class TransferCoordinator: @unchecked Sendable {
         queue.removeValue(forKey: id)
         discarded.remove(id)
         lock.unlock()
+        AppLog.shared.i("stop \(live ? "live" : "job") \(AppLog.clip(request.title, 18))")
     }
 
     private func publish(_ staging: URL, title: String, ext: String) throws {
@@ -578,8 +626,24 @@ final class TransferCoordinator: @unchecked Sendable {
             if [.queued, .running, .paused].contains(job.status) {
                 copy.status = .failed
                 copy.error = "앱이 종료되어 중단됐어요"
+                AppLog.shared.w("restore fail \(AppLog.clip(job.title, 20))")
             }
             return copy
+        }
+    }
+
+    private func expireStale() {
+        let active = snapshot.filter { [.queued, .running, .paused].contains($0.status) }
+        guard !active.isEmpty else { return }
+        for job in active {
+            lock.lock()
+            cancelFlags[job.id] = true
+            lock.unlock()
+            var copy = job
+            copy.status = .failed
+            copy.error = "응답이 멈춰서 절전 방지를 풀었어요"
+            upsert(copy)
+            AppLog.shared.e("expire \(AppLog.clip(job.title, 20))")
         }
     }
 
@@ -596,7 +660,9 @@ final class TransferCoordinator: @unchecked Sendable {
         let previous = jobs.first { $0.id == job.id }
         jobs = [job] + jobs.filter { $0.id != job.id }
         jobs = Array(jobs.prefix(JobStore.maxCount))
-        let shouldPersist = previous == nil || previous?.status != job.status
+        let shouldPersist = previous == nil
+            || previous?.status != job.status
+            || previous?.lookingForReplay != job.lookingForReplay
         lock.unlock()
         if shouldPersist { persist() }
         publish()

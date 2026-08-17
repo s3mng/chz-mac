@@ -1,5 +1,5 @@
 cask "cracker" do
-  version "1.2.0"
+  version "1.2.1"
   sha256 :no_check
 
   url "https://github.com/s3mng/chz-mac/releases/download/v#{version}/cracker-#{version}.dmg"

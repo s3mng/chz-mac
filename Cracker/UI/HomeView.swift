@@ -24,24 +24,22 @@ struct HomeView: View {
         }
         .background(CrackerTheme.background(colorScheme))
         .frame(minWidth: 420, idealWidth: 440, minHeight: 560, idealHeight: 720)
-        .sheet(item: pendingBinding) { meta in
-            QualitySheet(
-                meta: meta,
-                selectedQualityId: $model.selectedQualityId,
-                isLoggedIn: model.isLoggedIn,
-                onConfirm: model.confirmPending,
-                onDismiss: model.dismissSheet,
-                onLogin: { model.showLogin = true }
-            )
-            .sheet(isPresented: $model.showLogin) {
+        .sheet(item: sheetBinding) { sheet in
+            switch sheet {
+            case .login:
                 loginSheet
+            case .quality:
+                if let meta = model.pendingMeta {
+                    QualitySheet(
+                        meta: meta,
+                        selectedQualityId: $model.selectedQualityId,
+                        isLoggedIn: model.isLoggedIn,
+                        onConfirm: model.confirmPending,
+                        onDismiss: model.dismissSheet,
+                        onLogin: { model.showLogin = true }
+                    )
+                }
             }
-        }
-        .sheet(isPresented: Binding(
-            get: { model.showLogin && model.pendingMeta == nil },
-            set: { model.showLogin = $0 }
-        )) {
-            loginSheet
         }
         .alert("큐에서 삭제", isPresented: Binding(
             get: { jobToDelete != nil },
@@ -82,10 +80,21 @@ struct HomeView: View {
         }
     }
 
-    private var pendingBinding: Binding<VideoMeta?> {
+    private var sheetBinding: Binding<HomeSheet?> {
         Binding(
-            get: { model.pendingMeta },
-            set: { model.pendingMeta = $0 }
+            get: {
+                if model.showLogin { return .login }
+                if model.pendingMeta != nil { return .quality }
+                return nil
+            },
+            set: { newValue in
+                guard newValue == nil else { return }
+                if model.showLogin {
+                    model.showLogin = false
+                    return
+                }
+                model.dismissSheet()
+            }
         )
     }
 
@@ -148,4 +157,10 @@ struct HomeView: View {
 
 extension VideoMeta: Identifiable {
     var id: String { sourceURL + title }
+}
+
+private enum HomeSheet: String, Identifiable {
+    case login
+    case quality
+    var id: String { rawValue }
 }

@@ -60,6 +60,15 @@ struct DownloadJob: Identifiable, Hashable, Codable, Sendable {
     var error: String?
     var attempt: Int = 1
     var maxAttempts: Int = 1
+    var lookingForReplay: Bool? = nil
+
+    var isWatchHold: Bool {
+        kind == .watch && status == .running && (lookingForReplay != nil || (progress > 0 && progress < 0.1))
+    }
+
+    var isReplayHold: Bool {
+        lookingForReplay == true || (lookingForReplay == nil && progress > 0 && progress < 0.1)
+    }
 }
 
 enum ExtractResult: Sendable {

@@ -18,6 +18,8 @@ final class AppModel {
     var hasCustomFolder: Bool
     var cacheBytes: Int64 = 0
 
+    var logText = ""
+
     let cookies: CookieStore
     private let settings: SettingsStore
     private let extractor: ChzzkExtractor
@@ -38,6 +40,7 @@ final class AppModel {
         hasCustomFolder = settings.customFolder != nil
         jobs = coordinator.snapshot
         cacheBytes = coordinator.cacheByteCount()
+        logText = AppLog.shared.snapshot()
         coordinator.onChange = { [weak self] jobs in
             Task { @MainActor in
                 self?.jobs = jobs
@@ -54,17 +57,22 @@ final class AppModel {
         isResolving = true
         toast = nil
         Task {
+            AppLog.shared.i("resolve \(AppLog.clip(raw, 48))")
             let result = await extractor.resolve(raw)
             isResolving = false
             switch result {
             case .ready(let meta):
                 pendingMeta = meta
                 selectedQualityId = meta.qualities.first?.id
+                AppLog.shared.i("resolve \(meta.kind.rawValue) \(AppLog.clip(meta.title, 20)) q=\(meta.qualities.count)")
             case .needsLogin(let reason):
+                AppLog.shared.w("resolve login \(reason)")
                 flash(reason)
             case .offline(let channel):
+                AppLog.shared.i("resolve offline \(channel ?? "-")")
                 flash((channel.map { "\($0)님은 " } ?? "") + "지금 방송 중이 아니에요")
             case .failed(let message):
+                AppLog.shared.e("resolve fail \(message)")
                 flash(message)
             }
         }
@@ -97,6 +105,7 @@ final class AppModel {
     func logout() {
         cookies.clear()
         refreshLogin()
+        AppLog.shared.i("logout")
     }
 
     func refreshLogin() {
@@ -125,12 +134,14 @@ final class AppModel {
         settings.setCustomFolder(url)
         folderLabel = settings.folderLabel()
         hasCustomFolder = true
+        AppLog.shared.i("folder \(url.path)")
     }
 
     func resetFolder() {
         settings.clearCustomFolder()
         folderLabel = settings.folderLabel()
         hasCustomFolder = false
+        AppLog.shared.i("folder reset")
     }
 
     func refreshCache() {
@@ -143,8 +154,25 @@ final class AppModel {
         if removed <= 0 {
             flash("지울 캐시가 없어요")
         } else {
+            AppLog.shared.i("cache clear \(Formatters.bytes(removed))")
             flash("캐시 \(Formatters.bytes(removed))를 지웠어요")
         }
+    }
+
+    func refreshLog() {
+        logText = AppLog.shared.snapshot()
+    }
+
+    func copyLog() {
+        let text = AppLog.shared.snapshot()
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text.isEmpty ? "로그가 없어요" : text, forType: .string)
+        flash("로그를 복사했어요")
+    }
+
+    func clearLog() {
+        AppLog.shared.clear()
+        logText = AppLog.shared.snapshot()
     }
 
     func flash(_ message: String) {

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @Bindable var model: AppModel
+    @State private var showLog = false
 
     var body: some View {
         ScrollView {
@@ -10,18 +11,16 @@ struct SettingsView: View {
                 folderCard
                 retryCard
                 cacheCard
+                logCard
                 sleepNote
             }
             .padding(20)
         }
-        .frame(width: 420, height: 560)
+        .frame(width: 420, height: 620)
         .background(CrackerTheme.background(.light).opacity(0.001))
         .onAppear(perform: model.refreshCache)
-        .sheet(isPresented: $model.showLogin) {
-            LoginView(store: model.cookies) { _ in
-                model.showLogin = false
-                model.refreshLogin()
-            }
+        .sheet(isPresented: $showLog) {
+            LogSheet(model: model)
         }
     }
 
@@ -138,11 +137,69 @@ struct SettingsView: View {
         }
     }
 
+    private var logCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SettingsCard {
+                HStack(alignment: .center, spacing: 10) {
+                    Image(systemName: "doc.text")
+                        .foregroundStyle(Color.secondary)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("앱 로그")
+                            .font(.system(size: 16, weight: .semibold))
+                        Text("짧게 남기고, 대기·받기·요청을 최대한 기록합니다")
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+            }
+            Button("로그 보기") { showLog = true }
+                .buttonStyle(CheddarButtonStyle())
+        }
+    }
+
     private var sleepNote: some View {
-        Text("다운로드 중에는 맥이 혼자 잠들지 않게만 막습니다. 덮개를 닫으면 그때는 끊길 수 있어요.")
+        Text("받는 중과 다시보기 대기 중에는 맥이 혼자 잠들지 않게만 막습니다. 응답이 3분째 없으면 방지를 풉니다. 덮개를 닫으면 그때는 끊길 수 있어요.")
             .font(.system(size: 12))
             .foregroundStyle(.secondary)
             .padding(.horizontal, 4)
+    }
+}
+
+private struct LogSheet: View {
+    @Bindable var model: AppModel
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("앱 로그")
+                    .font(.system(size: 16, weight: .semibold))
+                Spacer()
+                Button("복사", action: model.copyLog)
+                    .buttonStyle(.plain)
+                Button("지우기", action: model.clearLog)
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                Button("닫기") { dismiss() }
+                    .buttonStyle(.plain)
+            }
+            ScrollView {
+                Text(model.logText.isEmpty ? "아직 기록이 없어요" : model.logText)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(model.logText.isEmpty ? .secondary : .primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+                    .padding(2)
+            }
+            .background(Color.black.opacity(0.25), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .padding(16)
+        .frame(width: 520, height: 420)
+        .onAppear(perform: model.refreshLog)
+        .onReceive(Timer.publish(every: 1.5, on: .main, in: .common).autoconnect()) { _ in
+            model.refreshLog()
+        }
     }
 }
 
